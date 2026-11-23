@@ -62,3 +62,11 @@ class TestFournisseurLLM(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPromptSysteme(unittest.TestCase):
+    def test_prompt_interdit_d_inventer_et_etiquette_le_general(self):
+        # Le libellé est utilisé par les tests de bout en bout : s'il change,
+        # il faut mettre à jour le jeu d'évaluation.
+        self.assertIn("ne l'invente jamais", rag.SYSTEM_PROMPT)
+        self.assertIn("Information générale (hors documents EMSI)", rag.SYSTEM_PROMPT)

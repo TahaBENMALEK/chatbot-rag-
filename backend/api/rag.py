@@ -272,6 +272,56 @@ def appeler_groq(messages: Sequence[Mapping[str, str]]) -> str:
     return answer.strip()
 
 
+CLAUDE_URL = "https://api.anthropic.com/v1/messages"
+
+
+def appeler_claude(messages: Sequence[Mapping[str, str]]) -> str:
+    """Appelle l'API Claude (Anthropic) avec les mêmes messages que Groq.
+
+    Le message "system" est passé dans le champ dédié ``system`` de l'API
+    Messages ; les autres messages restent dans ``messages``.
+    """
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY est absente.")
+
+    systeme = "\n\n".join(
+        m["content"] for m in messages if m.get("role") == "system"
+    )
+    echanges = [dict(m) for m in messages if m.get("role") != "system"]
+
+    response = requests.post(
+        CLAUDE_URL,
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": os.getenv("CLAUDE_MODEL", "claude-haiku-5-5"),
+            "max_tokens": 1024,
+            "system": systeme,
+            "messages": echanges,
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    blocs = response.json().get("content") or []
+    answer = "".join(b.get("text", "") for b in blocs if b.get("type") == "text")
+    if not answer.strip():
+        raise RuntimeError("Claude a renvoyé une réponse vide.")
+    return answer.strip()
+
+
+def appeler_llm(messages: Sequence[Mapping[str, str]]) -> str:
+    """Choisit le fournisseur LLM selon LLM_PROVIDER (groq par défaut)."""
+
+    if os.getenv("LLM_PROVIDER", "groq").strip().lower() == "claude":
+        return appeler_claude(messages)
+    return appeler_groq(messages)
+
+
 def _url_image_relative(chemin: str) -> str:
     """Convertit un chemin local d'image en URL servie par FastAPI."""
 
@@ -334,14 +384,16 @@ def repondre(question: str) -> dict[str, Any]:
         },
     ]
     try:
-        answer = appeler_groq(messages)
+        answer = appeler_llm(messages)
     except Exception as exc:
-        api_key = os.getenv("GROQ_API_KEY", "").strip()
         message_erreur = str(exc)
-        if api_key:
-            message_erreur = message_erreur.replace(api_key, "[clé masquée]")
+        # Masque toute clé API avant d'écrire l'erreur dans les logs.
+        for nom_cle in ("GROQ_API_KEY", "ANTHROPIC_API_KEY"):
+            api_key = os.getenv(nom_cle, "").strip()
+            if api_key:
+                message_erreur = message_erreur.replace(api_key, "[clé masquée]")
         print(
-            f"Erreur Groq ({type(exc).__name__}) : {message_erreur}",
+            f"Erreur LLM ({type(exc).__name__}) : {message_erreur}",
             file=sys.stderr,
         )
         return _reponse_erreur(
